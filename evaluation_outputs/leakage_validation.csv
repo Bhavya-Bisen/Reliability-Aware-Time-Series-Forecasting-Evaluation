@@ -1,0 +1,7 @@
+Check,Observed,Expected,Pass
+Train fraction,0.7,0.7,True
+Validation fraction,0.1,0.1,True
+Test fraction,0.2,0.2,True
+X scaler fitted samples,1434496.0,1434496.0,True
+y scaler fitted samples,1434496.0,1434496.0,True
+Window construction crosses train/test boundary,No,No,True

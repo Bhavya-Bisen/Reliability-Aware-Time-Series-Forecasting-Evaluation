@@ -1,0 +1,40 @@
+# Data & artifacts
+data/
+mlruns/
+artifacts/
+
+#Folders
+notebooks/Pre-built
+src/util
+src/Tensorflow
+
+# Models
+*.keras
+*.h5
+
+# Serialized data
+*.pkl
+
+# Python
+__pycache__/
+*.pyc
+
+# Misc
+model_summary.txt
+.env
+
+#mlflow
+mlflow
+.db
+.db-shm
+.db-wal
+
+#startup
+startup.sh
+
+notebooks/Scratch/captum.json
+predictions
+notebooks/Scratch/camptum.json
+evaluation_outputs/predictions_middle.csv 
+evaluation_outputs/predictions_initial.csv  
+evaluation_outputs/predictions_final.csv

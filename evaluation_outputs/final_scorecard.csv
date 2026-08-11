@@ -1,0 +1,8 @@
+Question,Evidence,Status
+Does the model actually work?,LSTM MAE/RMSE + representative forecast,Complete
+Is it better than simpler approaches?,Persistence + seasonal naive + XGBoost,Complete
+When does it fail?,Horizon + peak/non-peak + temporal heatmap,Complete
+Is it reliable?,Residual + missing/noise robustness,Complete
+What does the model rely on?,Integrated Gradients feature + temporal attribution,Complete
+Are explanations trustworthy?,IG convergence + attribution stability + deterministic checks,Complete
+Does the LLM explain faithfully?,Feature/direction/numerical/causal checks,Complete

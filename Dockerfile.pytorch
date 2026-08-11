@@ -1,0 +1,22 @@
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+
+WORKDIR /workspace
+
+COPY requirements_pytorch.txt .
+
+# Create virtual environment
+RUN apt-get update && apt-get install -y  python3  python3-pip  python3-venv
+RUN python3 -m venv /opt/venv
+
+# Activate venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+COPY . .
+
+#Cleaner logs
+ENV TF_CPP_MIN_LOG_LEVEL=2
+
+CMD ["bash"]

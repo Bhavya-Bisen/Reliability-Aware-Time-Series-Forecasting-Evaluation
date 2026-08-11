@@ -1,0 +1,2 @@
+device,model_parameters,batch_size_benchmark,inference_seconds,samples_per_second,training_seconds_from_MLflow,peak_GPU_memory_MB
+cuda,22174,1024,0.006378239000014219,160545.88108061132,5895.505,704.16064453125

@@ -1,0 +1,31 @@
+# config/config.yaml
+run_name: "Hurber_loss_v.1"
+
+preprocessing:
+  features_range: (0,1)
+
+model:
+  lstm_units: 64
+  dropout: 0.2
+
+training:
+  epochs: 50
+  batch_size: 32
+  learning_rate: 0.001
+
+data:
+  look_back: 120
+  features: 13
+  horizon: 30
+  target_col: 0
+
+early_stop:
+  patience: 20
+
+loss :
+  quantile_loss:
+    multi_quantiles: [0.1,0.5,0.9]
+    single_quantile: 0.5
+    no_quantiles: 3
+  huber_loss:
+    delta: 1.0
