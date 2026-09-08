@@ -6,7 +6,7 @@ preprocessing:
 
 model:
   lstm_units: 64
-  dropout: 0.2
+  dropout: None
 
 training:
   epochs: 50

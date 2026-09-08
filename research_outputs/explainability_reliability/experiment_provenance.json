@@ -1,0 +1,15 @@
+{
+    "git_commit": null,
+    "python": "3.12.3",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39",
+    "torch": "2.12.0+cu126",
+    "captum": "0.9.0",
+    "mlflow": "3.14.0",
+    "cuda": "12.6",
+    "cudnn": 91002,
+    "device": "cuda",
+    "training_run_id": "1ca274fa53f540b78c0796e36790d02b",
+    "preprocessing_run_id": "95bec2ea578f4705933fd5a4e0fc422f",
+    "x_sha256": "38b4cf0cbdd968b64fac9c8a70d411c403b0aa4df24fca1c2c0874a3c4e4cf2c",
+    "baseline_sha256": "791a4cbffafd166691c9b7df004491575ca9eb7beaed20ed1b214aee08353f63"
+}

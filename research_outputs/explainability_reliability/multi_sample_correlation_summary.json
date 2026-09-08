@@ -1,0 +1,6 @@
+{
+    "n_samples": 100,
+    "pearson_log_gradient_vs_log_completeness": 0.5181614521386017,
+    "spearman_gradient_vs_completeness": 0.5070267026702671,
+    "runtime_seconds": 0.5558888499999739
+}

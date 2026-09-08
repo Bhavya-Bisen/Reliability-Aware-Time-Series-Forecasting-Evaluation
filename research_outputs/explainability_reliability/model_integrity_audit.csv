@@ -1,0 +1,6 @@
+test,pass
+model_eval_mode,True
+all_submodules_eval,True
+forward_manual_equivalence,True
+deterministic_forward,True
+backend_forward_equivalence,False

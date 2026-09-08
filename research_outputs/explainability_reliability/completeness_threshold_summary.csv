@@ -1,0 +1,8 @@
+normalized_error_threshold,samples_above_threshold,fraction_above_threshold,percentage_above_threshold
+0.01,100,1.0,100.0
+0.05,100,1.0,100.0
+0.1,100,1.0,100.0
+1.0,100,1.0,100.0
+10.0,100,1.0,100.0
+100.0,100,1.0,100.0
+1000.0,100,1.0,100.0

@@ -1,0 +1,2 @@
+cudnn_gradient_l2,fallback_gradient_l2,fallback_to_cudnn_norm_ratio,cosine_similarity,relative_l2_difference
+2895122268160.0,244830600953856.0,84.56658172607422,0.9999544024467468,83.5666275024414

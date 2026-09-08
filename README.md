@@ -1,75 +1,130 @@
-# Multivariate Household Energy Forecasting, Explainability & LLM Evaluation
+# Reliability-Aware Multivariate Household Energy Forecasting
+## Forecast Failure Analysis, Gradient Sensitivity, Explainability Reliability, and LLM Evaluation
 
-> **Project focus:** 30-step multivariate household electricity forecasting using LSTM, systematic evaluation, Captum Integrated Gradients, robustness analysis, and grounded LLM-generated explanations.
-
-# 1. Overview
-
-This project studies short-horizon household electricity consumption forecasting using historical electrical measurements and engineered temporal features.
-
-The goal is not only to generate predictions, but to build an evaluation pipeline that answers:
-
-1. Does the model actually work?
-2. Is it better than simpler forecasting approaches?
-3. When does it fail?
-4. Are its errors structured?
-5. What information does it rely on?
-6. Are the explanations faithful to the model?
-7. Can an LLM explain the model without introducing unsupported claims?
-
-The main forecasting model is an **LSTM** that predicts the future `Global_active_power` signal over a **30-step horizon**.
+> **Research focus:** This project studies not only whether a multivariate LSTM can forecast household electricity consumption, but also **where it fails, whether its errors contain structure, whether post-hoc explanations are numerically trustworthy, and how explanation reliability affects downstream LLM-generated interpretations**.
 
 ---
 
-# 2. Problem Formulation
+## Abstract
 
-The task is formulated as a multivariate sequence forecasting problem:
+Deep learning models are often evaluated primarily through aggregate predictive metrics. This project takes a different approach: it treats **forecast reliability, failure analysis, and explanation validity as first-class research questions**.
+
+Using the UCI *Individual Household Electric Power Consumption* dataset, a PyTorch LSTM is trained to forecast `Global_active_power` over a 30-step horizon from a 120-step multivariate historical window. The model is compared against persistence, seasonal-naive, and XGBoost baselines and is evaluated across forecast horizon, peak-demand regimes, temporal regions, residual structure, feature ablation, robustness conditions, and computational cost.
+
+A major finding is that the trained LSTM does **not** outperform the persistence baseline on aggregate MAE, while its errors increase with forecast horizon and become substantially larger during peak-consumption events. Residual autocorrelation further indicates that predictable temporal structure remains in the forecasting errors.
+
+The project also re-audits its original Captum Integrated Gradients (IG) explainability pipeline. The trained model exhibits extremely large input-gradient magnitudes for many validation windows, with sensitivity strongly concentrated in earlier historical timesteps. In a 100-window audit, IG completeness fails catastrophically for every tested sample under the original-like CUDA/cuDNN configuration. Therefore, the original attribution magnitudes and feature/timestep rankings are **not treated as reliable evidence of model importance**. Feature ablation remains independently useful because it does not depend on the failed attribution values.
+
+The project therefore argues for a broader principle: **an explanation method should itself be validated before its outputs are interpreted or passed downstream to an LLM**.
+
+---
+
+# 1. Research Motivation
+
+Forecasting systems are often presented through a single performance metric and a small number of example predictions. This can hide important questions:
+
+- Does the model outperform a trivial but strong forecasting rule?
+- Does error increase with forecast distance?
+- Are rare high-demand events substantially harder than ordinary periods?
+- Do residuals still contain predictable temporal structure?
+- Are apparent feature attributions numerically valid?
+- Does the explanation depend on computational backend details?
+- Can an LLM produce trustworthy interpretations if its explanation inputs are themselves unreliable?
+
+This project is organized around these questions rather than around model architecture alone.
+
+---
+
+# 2. Research Questions
+
+### RQ1 — Forecasting value
+**Does the trained LSTM outperform simpler forecasting baselines?**
+
+### RQ2 — Forecast reliability
+**How does forecasting error change across horizon, peak/non-peak regimes, and temporal regions?**
+
+### RQ3 — Residual structure
+**Does predictable temporal structure remain after LSTM forecasting?**
+
+### RQ4 — Feature dependence
+**Which input variables materially affect predictive performance when ablated?**
+
+### RQ5 — Explanation reliability
+**Are Integrated Gradients attributions numerically valid for this trained recurrent model?**
+
+### RQ6 — Backend sensitivity
+**How sensitive are model outputs and input gradients to cuDNN versus fallback LSTM implementations?**
+
+### RQ7 — LLM explanation validity
+**What can an LLM safely explain when the upstream attribution signal itself may be unreliable?**
+
+---
+
+# 3. Dataset
+
+The project uses the **Individual Household Electric Power Consumption** dataset from the UCI Machine Learning Repository.
+
+**Source:** [UCI Machine Learning Repository — Individual Household Electric Power Consumption](https://archive.ics.uci.edu/dataset/235/individual+household+electric+power+consumption)
+
+**Dataset citation:**
+
+> Hebrail, G. & Berard, A. (2006). *Individual Household Electric Power Consumption*. UCI Machine Learning Repository. https://doi.org/10.24432/C58K54
+
+The raw measurements are transformed into multivariate historical windows with additional calendar-derived temporal features.
+
+---
+
+# 4. Forecasting Problem Formulation
+
+The forecasting problem is formulated as:
 
 ```text
-Historical multivariate window
-            |
-            v
-     Preprocessing
-            |
-            v
-       LSTM model
-            |
-            v
-    30-step forecast
-            |
-            v
- Global_active_power
+Historical multivariate sequence
+        (120 timesteps)
+               |
+               v
+        preprocessing
+               |
+               v
+          PyTorch LSTM
+               |
+               v
+       30-step forecast
+               |
+               v
+      Global_active_power
 ```
 
-The project separates:
+### Model configuration
 
-- data preprocessing,
-- model training,
-- model evaluation,
-- explainability,
-- LLM-based interpretation,
-- robustness analysis,
+| Component | Value |
+|---|---|
+| Input features | 13 |
+| Lookback | 120 timesteps |
+| LSTM hidden size | 64 |
+| Forecast horizon | 30 |
+| Target | `Global_active_power` |
+| Architecture | `LSTM(13 -> 64)` + `Linear(64 -> 30)` |
+| Training batch size | 32 |
+| Optimizer | Adam |
+| Main saved-run loss | Huber |
+| Framework | PyTorch |
 
 ---
 
-# 3. Data and Features
+# 5. Features
 
-The dataset contains household electrical measurements together with calendar-derived temporal features.
+### Electrical variables
 
-### Electrical features
-
-| Feature | Role |
-|---|---|
-| `Global_active_power` | Forecast target and historical input |
-| `Global_reactive_power` | Reactive power |
-| `Voltage` | Voltage measurement |
-| `Global_intensity` | Global intensity |
-| `Sub_metering_1` | Sub-metering measurement |
-| `Sub_metering_2` | Sub-metering measurement |
-| `Sub_metering_3` | Sub-metering measurement |
+- `Global_active_power`
+- `Global_reactive_power`
+- `Voltage`
+- `Global_intensity`
+- `Sub_metering_1`
+- `Sub_metering_2`
+- `Sub_metering_3`
 
 ### Temporal features
-
-The model also uses engineered temporal representations including:
 
 - `year`
 - `weekday`
@@ -80,514 +135,844 @@ The model also uses engineered temporal representations including:
 - `day_of_year_sin`
 - `day_of_year_cos`
 
-These allow the model to represent recurring calendar and seasonal structure.
-
-### 3.1 Raw Dataset
-
-The raw dataset used in this project is the **Individual Household Electric Power Consumption** dataset from the UCI Machine Learning Repository.
-
-**Source:** [UCI Machine Learning Repository — Individual Household Electric Power Consumption](https://archive.ics.uci.edu/dataset/235/individual+household+electric+power+consumption)
-
-The original dataset serves as the source for the preprocessing and feature-engineering pipeline. The raw data is processed to construct the multivariate time-series inputs and target sequences used by the forecasting models.
-
-> **Dataset citation:** Hebrail, G. & Berard, A. (2006). *Individual Household Electric Power Consumption*. UCI Machine Learning Repository. https://doi.org/10.24432/C58K54
+These features are intended to expose both recent electrical state and recurring calendar structure.
 
 ---
 
-# 4. Evaluation Strategy
+# 6. Experimental Evaluation Framework
 
-Rather than relying on a single MAE value, the project evaluates the forecasting system from several complementary perspectives.
-
-### Core evaluation suite
+The project evaluates the forecasting system across several complementary dimensions.
 
 | Category | Evaluation |
 |---|---|
-| Data validity | Leakage / split validation |
 | Baseline | Persistence |
-| Baseline | Seasonal Naive |
+| Baseline | Seasonal naive |
 | Classical ML | XGBoost |
 | Deep learning | LSTM |
 | Accuracy | MAE |
 | Accuracy | RMSE |
-| Relative error | sMAPE / MASE where applicable |
-| Forecast behaviour | Horizon-wise error |
-| Regime analysis | Peak vs non-peak error |
+| Relative error | sMAPE / MASE |
+| Forecast reliability | Horizon-wise error |
+| Regime analysis | Peak vs non-peak |
 | Temporal analysis | Day/hour error |
-| Diagnostics | Residual analysis |
+| Diagnostics | Residual autocorrelation |
 | Sensitivity | Feature ablation |
-| Sensitivity | Lookback ablation |
-| Explainability | Integrated Gradients |
-| Explainability | Temporal attribution |
-| LLM evaluation | Grounding |
-| LLM evaluation | Hallucination |
-| LLM evaluation | Causal-overclaim |
+| Sensitivity | Lookback sensitivity |
+| Robustness | Missingness / noise |
+| Explainability | Integrated Gradients audit |
+| Numerical reliability | Backend comparison |
+| LLM evaluation | Grounding / hallucination / causal overclaim |
+| Engineering | Inference/training cost |
 
 ---
 
-# 5. Baseline Comparison
+# 7. Baseline Comparison
 
-The LSTM is evaluated against progressively stronger reference models:
+A central result is that the trained LSTM does **not** outperform the persistence baseline.
 
-```text
-Persistence
-      |
-      v
-Seasonal Naive
-      |
-      v
-XGBoost
-      |
-      v
-LSTM
-```
+| Model | MAE | RMSE | sMAPE % | MASE |
+|---|---:|---:|---:|---:|
+| Persistence | 0.350385 | 0.670852 | 33.7408 | 4.03063 |
+| Seasonal Naive | 0.689125 | 1.05273 | 62.5639 | 7.9273 |
+| LSTM | 0.561946 | 0.854072 | 59.8693 | 6.46431 |
+| XGBoost | 0.791852 | 1.12713 | 110.782 | 9.10901 |
 
-This establishes whether the neural model learns useful temporal structure beyond simple forecasting rules.
+### Finding
 
-Relevant outputs:
+The persistence baseline achieves substantially lower MAE than the trained LSTM.
 
-| Model          |      MAE |     RMSE |   sMAPE_% |    MASE |
-|:---------------|---------:|---------:|----------:|--------:|
-| Persistence    | 0.350385 | 0.670852 |   33.7408 | 4.03063 |
-| Seasonal Naive | 0.689125 | 1.05273  |   62.5639 | 7.9273  |
-| LSTM           | 0.561946 | 0.854072 |   59.8693 | 6.46431 |
-| XGBoost        | 0.791852 | 1.12713  |  110.782  | 9.10901 |
+This is treated as a **research result rather than hidden as a failed model outcome**. The result suggests that short-horizon household power consumption contains strong local persistence that the trained recurrent model does not exploit effectively enough to justify its added complexity.
 
 ---
 
-# 6. Forecast Horizon Analysis
+# 8. Forecast-Horizon Degradation
 
-A single aggregate metric can hide how performance changes as the model forecasts further into the future.
+Aggregate metrics conceal the effect of forecasting distance.
 
-The project therefore calculates error separately for every forecast step.
+The LSTM's MAE increases across the 30-step horizon:
 
-The current evaluation shows a gradual increase in MAE across the 30-step horizon:
+- Horizon 1: approximately **0.525**
+- Horizon 30: approximately **0.584**
 
-- approximately **0.525 at the first step**
-- approximately **0.584 by step 30**
+<a href="evaluation_outputs/Figure_3_error_vs_horizon.png"><img src="evaluation_outputs/Figure_3_error_vs_horizon.png" alt="Error vs forecast horizon" width="700"></a>
 
-Output:
+### Finding
 
- <a href="evaluation_outputs/Figure_3_error_vs_horizon.png"><img src="evaluation_outputs/Figure_3_error_vs_horizon.png" alt="Figure 3 — error vs horizon" width="700"></a>
-
-This demonstrates degradation of predictive accuracy with increasing forecast horizon.
+Predictive accuracy degrades gradually as the forecast extends further into the future.
 
 ---
 
-# 7. Peak vs Non-Peak Analysis
+# 9. Peak vs Non-Peak Forecasting
 
-Energy forecasting performance can differ substantially between ordinary and high-demand periods.
+Peak demand is defined using the 90th percentile of the target distribution.
 
-The evaluation separates observations into:
+| Model | Regime | MAE | RMSE | sMAPE % | MASE |
+|---|---|---:|---:|---:|---:|
+| LSTM | Peak (>= P90) | 1.89631 | 2.1353 | 93.7955 | 21.8141 |
+| LSTM | Non-peak | 0.413541 | 0.550879 | 56.0961 | 4.75714 |
+| Persistence | Peak (>= P90) | 1.05645 | 1.44924 | 43.8137 | 12.1528 |
+| Persistence | Non-peak | 0.271858 | 0.516241 | 32.6205 | 3.1273 |
 
-- **Peak:** target >= P90
-- **Non-peak:** target below P90
+<a href="evaluation_outputs/Figure_4_peak_vs_nonpeak.png"><img src="evaluation_outputs/Figure_4_peak_vs_nonpeak.png" alt="Peak vs non-peak forecasting error" width="700"></a>
 
-The current evaluation snapshot shows approximately:
+### Finding
 
-```text
-Peak MAE      ≈ 1.9
-Non-peak MAE  ≈ 0.4
-```
+Peak consumption is substantially harder to forecast than ordinary consumption. The LSTM peak MAE is approximately **4.6x** its non-peak MAE.
 
-The model therefore has a much larger error during high-consumption events.
+Persistence also outperforms the LSTM during peak periods.
 
-Outputs:
-
-<a href="evaluation_outputs/Figure_4_peak_vs_nonpeak.png"><img src="evaluation_outputs/Figure_4_peak_vs_nonpeak.png" alt="Figure 4 — Peak vs non-peak error" width="700"></a>
-
-#### Peak vs non-peak evaluation
-
-
-| Model       | Regime        |      MAE |     RMSE |   sMAPE_% |     MASE |
-|:------------|:--------------|---------:|---------:|----------:|---------:|
-| LSTM        | Peak (>= P90) | 1.89631  | 2.1353   |   93.7955 | 21.8141  |
-| LSTM        | Non-peak      | 0.413541 | 0.550879 |   56.0961 |  4.75714 |
-| Persistence | Peak (>= P90) | 1.05645  | 1.44924  |   43.8137 | 12.1528  |
-| Persistence | Non-peak      | 0.271858 | 0.516241 |   32.6205 |  3.1273  |
-
-This is one of the most important failure-mode analyses in the project.
+This indicates that the neural model's largest errors occur precisely in the regime where accurate prediction may be most operationally valuable.
 
 ---
 
-# 8. Temporal Error Analysis
+# 10. Temporal Error Structure
 
-The project evaluates error as a function of:
+Error is also evaluated across day-of-week and hour-of-day combinations.
 
-- day of week
-- hour of day
+<a href="evaluation_outputs/Figure_5_temporal_error_heatmap.png"><img src="evaluation_outputs/Figure_5_temporal_error_heatmap.png" alt="Temporal error heatmap" width="700"></a>
 
-The temporal heatmap shows that error is not uniformly distributed across the week.
+The current evaluation contains a high-error region around the late-morning period, including a particularly strong cell around Friday late morning.
 
-The current snapshot contains a particularly high-error region around the late-morning period, with the strongest visible cell around Friday late morning.
+### Finding
 
-Output:
-
-<a href="evaluation_outputs/Figure_5_temporal_error_heatmap.png"><img src="evaluation_outputs/Figure_5_temporal_error_heatmap.png" alt="Figure 5 — Temporal_error_heatmap" width="700"></a>
-
-This helps identify temporal regimes where the model performs poorly.
+Forecast error is not uniformly distributed in time; some temporal regimes are more difficult than others.
 
 ---
 
-# 9. Residual Analysis
+# 11. Residual Diagnostics
 
-Residual analysis investigates whether predictable structure remains in the model's errors.
+Residual autocorrelation is used to test whether predictable temporal structure remains after forecasting.
 
-The residual autocorrelation plot shows strong positive autocorrelation:
+The residual series shows strong positive autocorrelation:
 
-- lag 1 is approximately **0.52**
-- positive autocorrelation persists across many subsequent lags
+- lag-1 residual autocorrelation ≈ **0.52**
+- positive autocorrelation persists across multiple subsequent lags
 
-Output:
-<a href="evaluation_outputs/Figure_residual_autocorrelation.png"><img src="evaluation_outputs/Figure_residual_autocorrelation.png" alt="Figure 6 — Residual_autocorrelation" width="700"></a>
-This indicates that the model has not completely removed temporal structure from the residuals.
+<a href="evaluation_outputs/Figure_residual_autocorrelation.png"><img src="evaluation_outputs/Figure_residual_autocorrelation.png" alt="Residual autocorrelation" width="700"></a>
 
-In practical terms:
+### Finding
 
-> The LSTM learns useful structure, but predictable information remains in the forecasting error.
+The LSTM has not removed all predictable temporal structure from the forecasting error.
+
+This suggests that additional predictive structure remains available but is not being captured by the current model/configuration.
 
 ---
 
-# 10. Representative Forecast
+# 12. Representative Forecast and Calibration Behaviour
 
-The project visualizes a representative 30-step prediction against the actual target trajectory.
+A representative 30-step forecast shows a visibly compressed prediction trajectory relative to the true target.
 
-Output:
-<a href="evaluation_outputs/Figure_2_actual_vs_predicted.png"><img src="evaluation_outputs/Figure_2_actual_vs_predicted.png" alt="Figure 2 — actual_vs_predicted" width="700"></a>
+<a href="evaluation_outputs/Figure_2_actual_vs_predicted.png"><img src="evaluation_outputs/Figure_2_actual_vs_predicted.png" alt="Actual vs predicted trajectory" width="700"></a>
 
-The current evaluation snapshot exposes a significant issue: the predicted trajectory is strongly compressed relative to the actual signal.
+The actual sequence rises above 4 in the displayed example, while the model prediction remains substantially lower.
 
-The actual sequence rises above 4 in the displayed example, while the model prediction remains much lower.
+### Finding
 
-This should currently be treated as an **evaluation finding**, not hidden from the project.
+The current model appears to under-represent high-amplitude variation in this example.
 
-Possible causes to investigate include:
+Possible explanations include:
 
-- target scaling/inverse transformation,
-- output-target alignment,
-- preprocessing mismatch,
+- target scaling / inverse transformation issues,
+- target-output alignment,
 - training convergence,
-- model capacity,
-- distribution mismatch.
+- insufficient capacity,
+- objective-function effects,
+- or distributional mismatch.
 
-Therefore, the current README does **not** claim that the final forecasting model is production-ready.
+These possibilities remain hypotheses rather than established causes.
 
 ---
 
-# 11. Feature Ablation
+# 13. Feature Ablation
 
-Feature ablation measures the effect of removing or neutralizing individual inputs.
+Feature ablation evaluates predictive dependence without relying on gradient-based explainability.
 
-Conceptually:
+| Feature | Base MAE | Ablated MAE | Relative MAE change |
+|---|---:|---:|---:|
+| `Global_active_power` | 0.570728 | 0.630692 | +10.51% |
+| `Global_intensity` | 0.570728 | 0.617784 | +8.24% |
+| `Sub_metering_3` | 0.570728 | 0.578319 | +1.33% |
+| `Sub_metering_1` | 0.570728 | 0.568401 | -0.41% |
+| `weekday` | 0.570728 | 0.567725 | -0.53% |
+
+### Finding
+
+Removing historical `Global_active_power` or `Global_intensity` causes the largest observed performance degradation among the tested features.
+
+Importantly, these ablation results remain interpretable even after the later Integrated Gradients reliability failure, because ablation does not depend on those attribution values.
+
+---
+
+# 14. Lookback Sensitivity
+
+| Lookback | MAE | RMSE | sMAPE % | MASE | Note |
+|---:|---:|---:|---:|---:|---|
+| 60 | 0.572454 | 0.872414 | 60.7255 | 6.58518 | same trained weights |
+| 120 | 0.569603 | 0.855295 | 60.6998 | 6.55238 | same trained weights |
+| 240 | 0.561673 | 0.846871 | 59.8297 | 6.46117 | same trained weights |
+
+These measurements indicate sensitivity to historical context length, but because the same trained weights are reused, they should not be interpreted as a fully controlled retraining comparison between different lookback architectures.
+
+---
+
+# 15. Explainability Reliability Audit
+
+The original project used Captum **Integrated Gradients (IG)** to compute feature and temporal attributions.
+
+The original configuration used:
+
+- a training-mean historical-window baseline,
+- approximately 50 IG integration steps,
+- CUDA/cuDNN,
+- `model.train()`,
+- multiple validation examples,
+- all 30 forecast outputs.
+
+The resulting attribution magnitudes reached approximately:
+
+- feature attribution: order **1e17**
+- temporal attribution: order **1e18**
+
+These values were originally interpreted relatively as feature/timestep importance.
+
+A later audit questioned whether the attribution values themselves were numerically valid.
+
+The historical notebook is retained for provenance:
 
 ```text
-Full feature set
+notebooks/Scratch/ExplainableAI.ipynb
+```
+
+The reliability investigation is maintained separately:
+
+```text
+Explainability_Reliability_Audit.ipynb
+```
+
+This preserves the original experiment while making the later methodological correction explicit.
+
+---
+
+# 16. Model Integrity Checks
+
+Before attributing the problem to Captum or model implementation, the audit verified the saved model itself.
+
+### 16.1 Evaluation mode
+
+- `model.eval()` behaves correctly.
+- all submodules are placed in evaluation mode.
+
+### 16.2 Deterministic inference
+
+Repeated forward passes under a fixed backend produce identical predictions:
+
+```text
+maximum repeated-prediction difference = 0
+```
+
+### 16.3 Manual forward reconstruction
+
+The model forward pass was reconstructed manually:
+
+```python
+lstm_output, _ = model.lstm(x)
+last_hidden = lstm_output[:, -1, :]
+manual_output = model.fc(last_hidden)
+```
+
+The result matched `model(x)` exactly:
+
+```text
+max absolute difference = 0
+```
+
+### Finding
+
+No hidden transformation inside the model's normal forward method explains the strange gradient behaviour.
+
+---
+
+# 17. cuDNN Constraint and Experimental Conditions
+
+Attempting backward-gradient computation with a cuDNN LSTM in evaluation mode produced:
+
+```text
+RuntimeError:
+cudnn RNN backward can only be called in training mode
+```
+
+This is treated as a backend constraint, not evidence of exploding gradients.
+
+Two experimental conditions were therefore examined.
+
+### Condition A — historical-like
+
+```text
+model.train()
+CUDA
+cuDNN enabled
+```
+
+### Condition B — reliability fallback
+
+```text
+model.eval()
+cuDNN disabled
+```
+
+The saved model has:
+
+- one LSTM layer,
+- LSTM dropout = 0,
+- no explicit Dropout modules.
+
+Within the same backend, `train()` and `eval()` produce the same forward predictions.
+
+---
+
+# 18. Backend Numerical Sensitivity
+
+For a frozen validation input, cuDNN and fallback LSTM implementations produced different numerical outputs.
+
+### Example — horizon 1
+
+```text
+cuDNN output    ≈ 0.037474
+fallback output ≈ 0.101023
+```
+
+Maximum difference across the 30 outputs:
+
+```text
+≈ 0.0705
+```
+
+Within each backend:
+
+```text
+eval_cudnn     == train_cudnn
+eval_fallback  == train_fallback
+```
+
+### Finding
+
+The discrepancy is associated with the computational LSTM implementation rather than train/eval mode.
+
+The project does **not** claim that either backend is definitively mathematically correct or incorrect. The low-level cause was not investigated to kernel-level depth.
+
+---
+
+# 19. Raw Input-Gradient Sensitivity
+
+Input gradients were computed independently of Captum using PyTorch autograd:
+
+```python
+torch.autograd.grad(model(x)[0, 0], x)
+```
+
+### Historical-like cuDNN/train condition
+
+```text
+gradient L2      ≈ 2.895e12
+max |gradient|   ≈ 2.306e12
+```
+
+### eval/fallback condition
+
+```text
+gradient L2      ≈ 2.448e14
+max |gradient|   ≈ 1.950e14
+```
+
+Despite the magnitude difference:
+
+```text
+cosine similarity ≈ 0.999954
+fallback/cuDNN gradient-norm ratio ≈ 84.6
+```
+
+### Finding
+
+Both implementations identify almost the same gradient direction, while the exact gradient scale is strongly backend-dependent.
+
+A conservative interpretation is:
+
+> The trained LSTM exhibits severe input-gradient sensitivity under both computational implementations, while the exact magnitude of that sensitivity is backend-dependent.
+
+This does **not** establish that training-time parameter gradients exploded.
+
+---
+
+# 20. Temporal Gradient Amplification
+
+The audit computes:
+
+```text
+|| dF / dx_t ||_2
+```
+
+for each of the 120 historical timesteps.
+
+For individual validation windows:
+
+- early historical timesteps can reach approximately **1e12–1e14**,
+- recent historical timesteps can fall below **1**.
+
+The pattern was then evaluated over 100 validation windows.
+
+### Distribution of input-gradient L2 norms
+
+| Statistic | Gradient L2 |
+|---|---:|
+| Minimum | 4.07e-1 |
+| 25th percentile | 1.37e10 |
+| Median | 2.94e12 |
+| 75th percentile | 1.75e14 |
+| 90th percentile | 2.78e16 |
+| 95th percentile | 7.25e16 |
+| Maximum | 7.35e17 |
+
+The median timestep-wise curve decreases by many orders of magnitude from early to recent historical observations.
+
+### Finding
+
+Input-gradient sensitivity increases substantially for earlier historical observations, consistent with severe gradient amplification during backward propagation through the recurrent computation.
+
+This statement is intentionally limited to **input-gradient behaviour during the audit**. Training-time parameter gradients from the original run were not recorded.
+
+---
+
+# 21. Integrated Gradients Completeness Test
+
+Integrated Gradients has a fundamental completeness relationship:
+
+```text
+sum(IG) ≈ F(x) - F(baseline)
+```
+
+A controlled single-example experiment kept the model, input, and baseline fixed.
+
+```text
+F(x)              ≈ 0.1125
+F(baseline)       ≈ 0.0871
+F(x)-F(baseline)  ≈ 0.0254
+```
+
+However:
+
+```text
+IG attribution sum        ≈ -1.98e16
+Captum convergence delta  ≈ -1.98e16
+normalized completeness error ≈ 7.77e17
+```
+
+### Finding
+
+The attribution is numerically invalid for this case because it catastrophically violates the expected completeness relationship.
+
+---
+
+# 22. Original-Like cuDNN Reproduction
+
+To test whether the failure was introduced only by the fallback implementation, the experiment was repeated under the condition closest to the original README-era Captum setup:
+
+```text
+model.train()
+CUDA
+cuDNN enabled
+n_steps = 50
+```
+
+For one canonical example:
+
+```text
+F(x)                 ≈ 0.037474
+F(baseline)          ≈ 0.147329
+output difference    ≈ -0.109855
+IG sum               ≈ -1.613e13
+Captum delta         ≈ -1.613e13
+max |IG|             ≈ 4.10e13
+normalized error     ≈ 1.47e14
+```
+
+### Finding
+
+The severe completeness failure is present under the original-like cuDNN condition as well.
+
+Therefore, the failure cannot be dismissed as an artifact created only by disabling cuDNN.
+
+---
+
+# 23. 100-Sample Explainability Reliability Audit
+
+A systematic audit was performed over 100 validation windows distributed across the validation period.
+
+### Configuration
+
+```text
+model.train()
+CUDA/cuDNN
+training-mean baseline
+target horizon = 1
+IG n_steps = 50
+```
+
+### Normalized IG completeness error
+
+| Statistic | Error |
+|---|---:|
+| Minimum | 6.74e12 |
+| 25th percentile | 2.77e15 |
+| Median | 1.80e16 |
+| 75th percentile | 3.43e17 |
+| 90th percentile | 5.47e18 |
+| 95th percentile | 1.54e19 |
+| Maximum | 1.31e20 |
+
+Most importantly:
+
+```text
+100 / 100 samples > 0.01
+100 / 100 samples > 0.1
+100 / 100 samples > 1
+100 / 100 samples > 10
+100 / 100 samples > 100
+100 / 100 samples > 1000
+```
+
+### Finding
+
+The completeness failure is **systematic across the tested validation subset**, not a single pathological example.
+
+Consequently, the original README's Integrated Gradients magnitudes and derived feature/timestep rankings are not currently treated as trustworthy evidence of feature importance.
+
+---
+
+# 24. Gradient Magnitude vs Attribution Failure
+
+Across the 100 audited validation samples:
+
+```text
+Pearson correlation:
+log10(input-gradient L2)
+vs
+log10(normalized IG completeness error)
+≈ 0.518
+```
+
+```text
+Spearman correlation:
+raw gradient magnitude
+vs
+completeness error
+≈ 0.507
+```
+
+### Finding
+
+Larger input-gradient magnitudes are moderately associated with larger Integrated Gradients completeness errors.
+
+This supports the hypothesis that gradient instability contributes to attribution failure, but the substantial scatter shows that gradient norm alone does not fully determine IG reliability.
+
+No causal claim is made from this correlation.
+
+---
+
+# 25. Revised Interpretation of Explainability Results
+
+The original README reported global and temporal Integrated Gradients rankings.
+
+Following the reliability audit, those rankings are retained only as **historical experimental outputs**, not as current evidence.
+
+### Currently unsupported
+
+The project should **not** claim that the original IG rankings establish:
+
+- which feature is globally most important,
+- which historical timestep is most important,
+- which physical variable causes power consumption,
+- or that the attribution magnitudes are meaningful simply because they can be ranked.
+
+### Still independently useful
+
+Feature ablation remains informative because it directly tests predictive degradation under input removal and does not rely on the invalid IG values.
+
+This distinction is important:
+
+```text
+Ablation = predictive sensitivity experiment
+Integrated Gradients = gradient-based attribution method
+```
+
+Failure of the latter does not automatically invalidate the former.
+
+---
+
+# 26. LLM Explanation Layer
+
+The project also includes an LLM-based explanation stage:
+
+```text
+Forecast model
       |
-      +--> remove feature A --> evaluate
-      +--> remove feature B --> evaluate
-      +--> remove feature C --> evaluate
-      +--> ...
+      v
+Prediction
+      |
+      v
+Explainability signal
+      |
+      v
+Structured evidence
+      |
+      v
+LLM explanation
 ```
 
-Output:
+The LLM itself is **not** the forecasting model.
 
-[View full file →](evaluation_outputs/feature_ablation.csv)
+It acts as an interpretation layer over structured model outputs.
 
-| Feature             |   Base_MAE |   Ablated_MAE |   MAE_change |   Relative_change_% |
-|:--------------------|-----------:|--------------:|-------------:|--------------------:|
-| Global_active_power |   0.570728 |      0.630692 |   0.0599642  |           10.5066   |
-| Global_intensity    |   0.570728 |      0.617784 |   0.0470558  |            8.24488  |
-| Sub_metering_3      |   0.570728 |      0.578319 |   0.00759071 |            1.33001  |
-| Sub_metering_1      |   0.570728 |      0.568401 |  -0.00232673 |           -0.407677 |
-| weekday             |   0.570728 |      0.567725 |  -0.00300282 |           -0.526139 |
+The evaluation checks:
 
-Ablation complements attribution because a feature can have high attribution without necessarily producing a large performance degradation when removed.
+- feature agreement,
+- directional agreement,
+- numerical consistency,
+- feature-level hallucination,
+- causal overclaiming.
 
----
+### Important reliability implication
 
-# 12. Lookback Sensitivity
+Because the original Integrated Gradients outputs fail the later reliability audit, LLM explanations conditioned on those attribution values should not be interpreted as evidence of faithful model explanation.
 
-The model depends on the amount of historical context supplied to the LSTM.
+They remain useful for studying **LLM grounding behaviour relative to the provided structured evidence**, but the trustworthiness of the upstream evidence must be considered separately.
 
-The project therefore evaluates different lookback configurations.
-
-The complete lookback-sensitivity experiment is linked from the preview below.
-
-#### Lookback sensitivity
-
-[View full file →](evaluation_outputs/lookback_sensitivity.csv)
-
-|   Lookback |      MAE |     RMSE |   sMAPE_% |    MASE | Interpretation       |
-|-----------:|---------:|---------:|----------:|--------:|:---------------------|
-|         60 | 0.572454 | 0.872414 |   60.7255 | 6.58518 | same trained weights |
-|        120 | 0.569603 | 0.855295 |   60.6998 | 6.55238 | same trained weights |
-|        240 | 0.561673 | 0.846871 |   59.8297 | 6.46117 | same trained weights |
-
----
-
-# 13. Integrated Gradients Explainability
-
-The project uses **Captum Integrated Gradients (IG)** to investigate the inputs that contribute most strongly to model predictions.
-
-IG is interpreted as an **attribution method**, not as causal inference.
-
-
----
-
-## Global Feature Attribution
-
-The current attribution result shows high mean absolute attribution for features including:
-
-1. `Sub_metering_3`
-2. `Global_active_power`
-3. `day_of_year_sin`
-4. `year`
-5. `quarter_sin`
-6. `month_sin`
-7. `Global_intensity`
-8. `weekday`
-
-Outputs:
-
-<a href="evaluation_outputs/Figure_8_IG_feature_importance.png"><img src="evaluation_outputs/Figure_8_IG_feature_importance.png" alt="Figure 8 — Integrated Gradients feature importance" width="700"></a>
-
-The five highest-attribution features are previewed below.
-
-#### Integrated Gradients feature importance
-
-[View full file →](evaluation_outputs/Table_IG_feature_importance.csv)
-
-| Feature             |   Mean_abs_attribution |
-|:--------------------|-----------------------:|
-| Sub_metering_3      |            1.39358e+17 |
-| Global_active_power |            1.32342e+17 |
-| day_of_year_sin     |            8.58194e+16 |
-| year                |            8.30874e+16 |
-| quarter_sin         |            8.21436e+16 |
-
-The attribution magnitudes should be interpreted relatively, particularly because the model operates on transformed/scaled inputs.
-
-They should not be interpreted as physical energy units.
-
----
-
-# 14. Temporal Attribution
-
-Feature attribution does not tell us when historical information was important.
-
-The project therefore aggregates Integrated Gradients over historical timesteps.
-
-Output:
-<a href="evaluation_outputs/Figure_9_temporal_attribution.png"><img src="evaluation_outputs/Figure_9_temporal_attribution.png" alt="Figure 9 — Temporal attribution" width="700"></a>
-
-The first five historical timesteps are previewed below; the link opens the complete attribution table.
-
-#### Temporal attribution
-
-[View full file →](evaluation_outputs/Table_temporal_attribution.csv)
-
-|   Historical_timestep |   Mean_abs_attribution |
-|----------------------:|-----------------------:|
-|                     1 |            2.77981e+18 |
-|                     2 |            1.28165e+18 |
-|                     3 |            9.10135e+17 |
-|                     4 |            5.57507e+17 |
-|                     5 |            6.02751e+17 |
-
-The current result shows a strong concentration of attribution toward the most recent historical observations.
-
-This indicates that recent observations dominate the model's current predictions, while older observations contribute substantially less.
-
----
-
-# 15. Attribution Is Not Causality
-
-A central principle of the project is:
+This motivates a general pipeline principle:
 
 ```text
-Attribution != Causality
+Validate explanation signal first
+        ↓
+Then evaluate language explanation
 ```
 
-If Integrated Gradients assigns high attribution to:
+---
 
-```text
-Sub_metering_3
-day_of_year_sin
-weekday
-```
+# 27. Robustness Evaluation
 
-we can say:
+| Condition | MAE | RMSE | sMAPE % | MASE | MAE degradation % |
+|---|---:|---:|---:|---:|---:|
+| Clean | 0.570728 | 0.859323 | 61.0452 | 6.56532 | 0 |
+| 1% missing | 0.560269 | 0.857600 | 59.5477 | 6.44501 | -1.83 |
+| 5% missing | 0.561285 | 0.854170 | 59.9885 | 6.45670 | -1.65 |
+| Gaussian noise | 0.564109 | 0.849427 | 60.3713 | 6.48919 | -1.16 |
 
-> The model relied strongly on these inputs for its prediction.
-
-We cannot conclude:
-
-> These variables caused the household's electricity consumption to change.
-
-High attribution can arise because a feature:
-
-- correlates with the target,
-- acts as a proxy,
-- encodes temporal information,
-- or is exploited by the learned model.
-
-Causal claims require additional evidence and are outside what Integrated Gradients alone can establish.
+The observed small improvements under perturbation should not automatically be interpreted as beneficial noise regularization. They may also reflect sample variation or interactions with the current model and preprocessing pipeline.
 
 ---
 
-# 16. LLM Explanation Layer
+# 28. Computational Cost
 
-The project places an LLM after the predictive and explainability stages.
+| Device | Parameters | Benchmark batch size | Inference seconds | Samples / second | Training seconds | Peak GPU memory |
+|---|---:|---:|---:|---:|---:|---:|
+| CUDA | 22,174 | 1024 | 0.006378 | 160,546 | 5895.51 | 704.161 MB |
 
-The LLM receives structured information derived from model predictions and Captum attribution results and produces a natural-language explanation.
+Computational cost is included because model selection should consider not only predictive accuracy but also complexity and deployment cost.
 
-```text
-              LSTM
-               |
-               v
-        Model predictions
-               |
-               v
-         Captum IG
-               |
-               v
-     Structured attribution
-               |
-               v
-              LLM
-               |
-               v
-     Natural-language explanation
-```
-
-The LLM is therefore **not the forecasting model**.
-
-It acts as an explanation interface over the predictive model and its attribution results.
+Given that persistence currently outperforms the LSTM, this comparison is especially relevant.
 
 ---
 
-# 17. LLM Explanation Evaluation
+# 29. Main Research Findings
 
-The LLM output is evaluated rather than assumed to be trustworthy simply because it is fluent.
+### Finding 1 — The simple baseline wins
 
-The evaluation considers:
+Persistence outperforms the trained LSTM on aggregate forecasting error.
 
-### Feature agreement
+### Finding 2 — Forecast uncertainty grows with horizon
 
-Does the explanation mention features identified as important by the attribution analysis?
+LSTM error increases as the prediction extends further into the future.
 
-### Direction agreement
+### Finding 3 — Peak events are substantially harder
 
-When attribution has a consistent sign, does the explanation describe the direction consistently?
+Peak-consumption MAE is far larger than non-peak MAE, and persistence remains stronger during peaks.
 
-### Numerical consistency
+### Finding 4 — Residual temporal structure remains
 
-Are numerical claims consistent with available prediction and ground-truth values?
+Lagged residual correlation shows that the forecasting model leaves predictable temporal structure unexplained.
 
-### Feature-level hallucination
+### Finding 5 — Some features matter under ablation
 
-Does the explanation introduce unsupported feature names or feature-level claims?
+Historical `Global_active_power` and `Global_intensity` produce the largest observed MAE increases when removed.
 
-### Causal overclaim
+### Finding 6 — Input gradients are extremely large for many windows
 
-Does the explanation use causal language without sufficient qualification?
+The trained LSTM exhibits severe input-gradient sensitivity over a substantial fraction of the validation data.
 
-The generated LLM output is stored as [llm_outputs.json](evaluation_outputs/llm_outputs.json).
+### Finding 7 — Earlier timesteps are dramatically more gradient-sensitive
 
-The resulting evaluation summary is viewed below.
+The median gradient-by-timestep curve spans many orders of magnitude from early to recent observations.
 
-#### Table 2 — LLM explanation evaluation
+### Finding 8 — Backend choice changes numerical magnitude
 
-|   Feature agreement |   Direction agreement |   Numerical consistency |   Hallucination rate |   Causal-overclaim rate |
-|--------------------:|----------------------:|------------------------:|---------------------:|------------------------:|
-|                   1 |                   nan |               0.0588235 |                    0 |                       0 |
+cuDNN and fallback implementations produce similar gradient directions but materially different forward and gradient magnitudes.
 
+### Finding 9 — Integrated Gradients fails completeness systematically
 
-The current generated explanation explicitly distinguishes model attribution from causality, but also contains domain-level interpretations such as residential/heating-related interpretations that require independent evidence before being treated as factual. This is precisely the type of behaviour the grounding/overclaim evaluation is intended to detect.
+All 100 audited validation windows show catastrophic normalized completeness error under the original-like configuration.
 
----
+### Finding 10 — Original IG rankings are not reliable evidence
 
-# 18. Robustness Evaluation
+The historical attribution magnitudes and feature/timestep rankings should not currently be used to support claims about model importance.
 
-The forecasting system is evaluated under degraded input conditions.
+### Finding 11 — Explanation validation must precede language interpretation
 
-The robustness suite includes conditions such as:
-
-- clean input
-- missing observations
-- higher missingness
-- noisy observations
-- controlled perturbations implemented by the evaluation pipeline
-
-The robustness results are previewed below. **View full file** opens the complete CSV.
-
-#### Table 3 — Robustness
-
-[View full file →](evaluation_outputs/Table_3_robustness.csv)
-
-| Condition      |      MAE |     RMSE |   sMAPE_% |    MASE |   MAE_degradation_% |
-|:---------------|---------:|---------:|----------:|--------:|--------------------:|
-| Clean          | 0.570728 | 0.859323 |   61.0452 | 6.56532 |             0       |
-| 1% missing     | 0.560269 | 0.8576   |   59.5477 | 6.44501 |            -1.83259 |
-| 5% missing     | 0.561285 | 0.85417  |   59.9885 | 6.4567  |            -1.65455 |
-| Gaussian noise | 0.564109 | 0.849427 |   60.3713 | 6.48919 |            -1.15968 |
+An LLM explanation can only be as trustworthy as the structured evidence supplied to it. Upstream attribution reliability therefore becomes part of downstream explanation reliability.
 
 ---
 
-# 19. Computational Cost
+# 30. What the Project Can Currently Claim
 
-The project also records training and inference cost.
+The following statements are supported by the completed experiments:
 
-#### Computational cost
-
-[View full file →](evaluation_outputs/cost_report.csv)
-
-| device   |   model_parameters |   batch_size_benchmark |   inference_seconds |   samples_per_second |   training_seconds_from_MLflow |   peak_GPU_memory_MB |
-|:---------|-------------------:|-----------------------:|--------------------:|---------------------:|-------------------------------:|---------------------:|
-| cuda     |              22174 |                   1024 |          0.00637824 |               160546 |                        5895.51 |              704.161 |
-
-This adds an engineering perspective to model selection: accuracy must be considered alongside computational requirements.
-
----
-
-# 20. Current Findings
-
-The current evaluation snapshot provides the following major observations.
-
-### 1. Error increases with forecast horizon
-
-MAE gradually increases across the 30-step forecast.
-
-### 2. Peak consumption is substantially harder
-
-Peak MAE is far higher than non-peak MAE.
-
-### 3. Residual temporal structure remains
-
-Residual autocorrelation remains strongly positive over many lags.
-
-### 4. The representative prediction exposes a scale/calibration problem
-
-The shown prediction is strongly compressed relative to the actual target trajectory.
-
-### 5. The model relies heavily on a subset of inputs
-
-Integrated Gradients identifies strong attribution for sub-metering, historical active-power, and calendar/seasonal features.
-
-### 6. Recent history dominates attribution
-
-The temporal attribution is heavily concentrated toward recent timesteps.
-
-### 7. LLM explanations need grounding
-
-An LLM can produce a coherent explanation while still adding interpretations that are not directly supported by the model outputs.
+1. The trained model produces deterministic predictions under a fixed computational backend.
+2. The normal forward method matches manual reconstruction from the saved LSTM and FC layers.
+3. The LSTM does not outperform persistence in the current evaluation.
+4. Peak demand and longer horizons are substantially harder forecasting regimes.
+5. Residuals retain strong temporal dependence.
+6. `Global_active_power` and `Global_intensity` materially affect performance in feature-ablation experiments.
+7. The trained model exhibits extremely large input gradients for many validation windows.
+8. Earlier historical observations systematically exhibit much larger gradient sensitivity than recent ones.
+9. Severe input-gradient sensitivity occurs under both cuDNN and fallback implementations.
+10. Exact forward and gradient magnitudes are backend-sensitive.
+11. Integrated Gradients catastrophically violates completeness under the original-like configuration.
+12. The IG failure occurs across all 100 audited validation windows.
+13. The original IG-based feature/timestep rankings should not currently be treated as reliable evidence.
+14. Feature ablation remains independently informative.
 
 ---
 
-# 21. Repository Structure
+# 31. What Has Not Been Established
 
-The project uses a containerized development environment to reduce dependency and GPU-environment inconsistencies.
+The project intentionally avoids stronger claims that are not supported by the experiments.
 
-The workflow uses:
+### Not established: "training gradients exploded"
+
+Training-time parameter gradients from the original training run were not recorded.
+
+### Not established: "Captum is broken"
+
+The observed failure is specific to the interaction between this trained model, its gradient field, and the tested attribution configuration.
+
+### Not established: "cuDNN caused the problem"
+
+Severe gradient sensitivity and IG completeness failure occur under both cuDNN and fallback implementations.
+
+### Not established: "fallback is the mathematically correct backend"
+
+A numerical discrepancy exists, but its low-level cause has not been resolved.
+
+### Not established: "IG proves physical causality"
+
+Attribution is not causality.
+
+### Not established: "the backend mechanism is fully solved"
+
+Kernel-level numerical analysis is outside the current scope.
+
+---
+
+# 32. Threats to Validity
+
+### Single dataset
+
+Results are currently derived from one household-energy dataset and may not generalize to other demand profiles.
+
+### Single trained LSTM instance
+
+The explainability audit focuses on the saved trained model. Additional random seeds and retrained models are required to determine how often the same gradient pathology occurs.
+
+### Limited architecture coverage
+
+The current audit does not compare recurrent alternatives such as GRU, TCN, Transformers, or simpler autoregressive neural models.
+
+### No original training-gradient logs
+
+Because original training-time parameter gradients were not retained, the project cannot retroactively determine whether the training process itself exhibited exploding gradients.
+
+### Backend discrepancy not fully resolved
+
+cuDNN and fallback differences are empirically demonstrated but not explained at the kernel/numerical-analysis level.
+
+### LLM explanation dependence
+
+LLM grounding results depend on the reliability of the structured evidence passed to the language model.
+
+---
+
+# 33. Future Research
+
+The next useful experiments are not simply larger models. They should directly test the mechanisms exposed by the current findings.
+
+### 33.1 Retraining with gradient instrumentation
+
+Record during training:
+
+- parameter-gradient norms,
+- clipping events,
+- hidden-state statistics,
+- cell-state statistics,
+- per-layer activation distributions.
+
+This would allow training instability to be tested directly rather than inferred retrospectively.
+
+### 33.2 Gradient clipping comparison
+
+Retrain controlled models with and without gradient clipping to test whether input-gradient behaviour and attribution reliability improve.
+
+### 33.3 Multi-seed reliability
+
+Repeat training across multiple seeds to determine whether the observed pathology is model-instance specific or reproducible.
+
+### 33.4 Architecture comparison
+
+Compare:
+
+- LSTM,
+- GRU,
+- Temporal Convolutional Network,
+- Transformer-based sequence model,
+- strong persistence/autoregressive baselines.
+
+The focus should include both forecasting accuracy and gradient/explanation reliability.
+
+### 33.5 Attribution-method comparison
+
+Only after establishing numerically stable models, compare:
+
+- Integrated Gradients,
+- GradientSHAP,
+- DeepLIFT,
+- occlusion,
+- perturbation-based methods,
+- feature ablation.
+
+Each method should be checked against method-specific validity conditions before interpretation.
+
+### 33.6 Explanation-aware evaluation
+
+A stronger LLM study would separate:
+
+1. predictive correctness,
+2. attribution reliability,
+3. structured-evidence quality,
+4. language-model grounding.
+
+This would create an end-to-end explanation reliability framework rather than evaluating only linguistic fluency.
+
+---
+
+# 34. Reproducibility and Experiment Tracking
+
+The project uses:
 
 - Python
 - PyTorch
@@ -597,30 +982,9 @@ The workflow uses:
 - Jupyter
 - NVIDIA GPU acceleration where available
 
-The project separates the reusable implementation code from the notebook-based experimental workflow:
+MLflow tracks experiments, parameters, metrics, and artifacts.
 
-```text
-src/Pytorch/
-    → model and ML implementation
-
-notebooks/
-    → preprocessing, training, evaluation and analysis
-
-MLflow/
-    → experiment tracking and artifact logging
-
-evaluation_outputs/
-    → final evaluation tables, figures and reports
-
-Docker/
-    → reproducible development environment
-```
-
-MLflow is used throughout the project for **both the Python implementation under `src/Pytorch` and the notebooks**. Jupyter is required for executing and interacting with the notebooks, while MLflow provides experiment tracking, run management and artifact logging for the training/evaluation workflow.
-
----
-
-## Project Structure
+The repository separates reusable implementation code, notebooks, outputs, and infrastructure.
 
 ```text
 project/
@@ -635,23 +999,20 @@ project/
 │       ├── Model_Training.ipynb
 │       ├── Model_Evaluation.ipynb
 │       ├── ExplainableAI.ipynb
+│       ├── Explainability_Reliability_Audit.ipynb
 │       └── LLM.ipynb
 │
 ├── src/
 │   └── Pytorch/
-│       └── ...                  # reusable PyTorch implementation
+│       └── ...
 │
 ├── evaluation_outputs/
-│   └── ...                      # generated figures, tables and reports
+│   └── ...
 │
 ├── mlruns/
-│   └── ...                      # MLflow tracking data/artifacts
+│   └── ...
 │
 ├── mlflow.db
-├── mlflow.py
-├── captum.json
-├── llm_outputs.json
-│
 ├── Dockerfile
 ├── startup.sh
 └── requirements.txt
@@ -659,370 +1020,7 @@ project/
 
 ---
 
-## Setup and Execution
-
-### 1. Clone the repository
-
-```bash
-git clone <repository-url>
-cd <project-directory>
-```
-
-### 2. Configure the project
-
-Review:
-
-```text
-config/config.yaml
-```
-
-before running the pipeline.
-
-The configuration contains the project-specific settings required by the preprocessing, training and evaluation workflow.
-
----
-
-### 3. Start the Docker environment
-
-The recommended way to run the complete project is through Docker.
-
-Run the containers:
-
-```bash
-docker run --gpus all -it \
-    -p 5000:5000 \
-    -p 8080:8080 \
-    -v .:/workspace \
-    --name Scratch_learn \
-    base_workspace:pytorch-v.1
-```
-
-Enter the running container:
-
-```bash
-docker exec -it Scratch_learn bash
-```
-
-
-The project is intended to run **Jupyter and MLflow alongside each other**.
-
-The two services have different purposes:
-
-```text
-                    Docker Environment
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-           Jupyter                    MLflow
-              │                         │
-              ▼                         ▼
-       Execute notebooks        Track experiments
-              │                 and artifacts
-              │                         │
-              └────────────┬────────────┘
-                           │
-                           ▼
-                     src/Pytorch
-```
-
-Jupyter is the interface for executing the notebooks, while MLflow remains available as the experiment-tracking server for both notebook and `src/Pytorch` execution.
-
----
-
-### 4. Start Jupyter
-
-Jupyter is required for the notebook workflow.
-
-With the default project configuration, access Jupyter at:
-
-```text
-http://localhost:8080
-```
-
-The notebooks are located under:
-
-```text
-notebooks/Scratch/
-```
-
-The notebook workflow is:
-
-```text
-Data_Preprocessing.ipynb
-        ↓
-Model_Training.ipynb
-        ↓
-Model_Evaluation.ipynb
-        ↓
-ExplainableAI.ipynb
-        ↓
-LLM.ipynb
-```
-
----
-
-### 5. Start MLflow
-
-MLflow is required for experiment tracking and is used by both:
-
-- Python code under `src/Pytorch`
-- Jupyter notebooks under `notebooks/`
-
-Start the MLflow tracking server alongside Jupyter:
-
-```bash
-mlflow server \
-    --backend-store-uri sqlite:///mlflow.db \
-    --default-artifact-root ./artifacts \
-    --host 0.0.0.0 \
-    --port 5000
-```
-
-Then open the MLflow UI at:
-
-```text
-http://localhost:5000
-```
----
-
-### 6. Run the Project Pipeline
-
-### Step 1 — Data preprocessing
-
-Open:
-
-```text
-notebooks/Scratch/Data_Preprocessing.ipynb
-```
-
-This prepares the raw household electricity data and constructs the inputs required by the forecasting pipeline.
-
----
-
-### Step 2 — Model training
-
-Open:
-
-```text
-notebooks/Scratch/Model_Training.ipynb
-```
-
-The notebook acts as the experimental interface, while the reusable PyTorch implementation is maintained under:
-
-```text
-src/Pytorch/
-```
-
-Training runs should be logged to MLflow.
-
-This allows experiments to be compared using:
-
-- parameters
-- metrics
-- model information
-- artifacts
-- run history
-
-rather than relying only on notebook output.
-
-
-
-### Step 3 — Explainability
-
-Open:
-
-```text
-notebooks/Scratch/ExplainableAI.ipynb
-```
-
-This uses Captum/Integrated Gradients to evaluate:
-
-- feature attribution
-- temporal attribution
-- attribution-related diagnostics
-
-The resulting artifacts are exported to:
-
-```text
-evaluation_outputs/
-```
-
----
-
-### Step 4 — LLM explanation
-
-Open:
-
-```text
-notebooks/Scratch/LLM.ipynb
-```
-
-This consumes structured prediction and attribution outputs and generates natural-language explanations.
-
-The LLM outputs are then evaluated for:
-
-- feature agreement
-- direction agreement
-- numerical consistency
-- feature-level hallucination
-- causal overclaiming
-
-The generated outputs are stored under:
-
-```text
-evaluation_outputs/
-```
-
----
----
-
-### Step 5 — Model evaluation
-
-Open:
-
-```text
-notebooks/Scratch/Model_Evaluation.ipynb
-```
-
-The evaluation notebook runs:
-
-- leakage/split validation
-- persistence baseline
-- seasonal-naive baseline
-- XGBoost baseline
-- LSTM comparison
-- MAE/RMSE and related metrics
-- forecast-horizon analysis
-- peak vs non-peak analysis
-- temporal error analysis
-- residual analysis
-- feature ablation
-- lookback sensitivity
-- robustness experiments
-- computational-cost reporting
-
-Generated results are written to:
-
-```text
-evaluation_outputs/
-```
-
----
-
-### 7. Inspect Evaluation Outputs
-
-After completing the pipeline, the main evaluation artifacts are available under:
-
-```text
-evaluation_outputs/
-```
-
-These include:
-
-- model comparison
-- actual vs predicted plots
-- horizon error
-- peak/non-peak error
-- temporal error heatmaps
-- residual diagnostics
-- feature ablation
-- lookback sensitivity
-- Integrated Gradients attribution
-- temporal attribution
-- robustness results
-- LLM evaluation
-- computational-cost reports
-- final scorecards
-
-The notebooks do not need to be rerun merely to inspect these generated artifacts.
-
----
-
-### 8. Running Without Docker
-
-A local Python environment can also be used if Docker is unavailable.
-
-Create a virtual environment:
-
-```bash
-python3 -m venv .venv
-```
-
-Activate it:
-
-```bash
-source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Start Jupyter:
-
-```bash
-jupyter notebook \
-    --ip=0.0.0.0 \
-    --port=8080 \
-    --allow-root \
-    --no-browser
-```
-
-In a separate terminal, start MLflow:
-
-```bash
-mlflow server \
-    --host 0.0.0.0 \
-    --port 5000
-```
-
-You can then use:
-
-```text
-Jupyter → http://localhost:8080
-MLflow  → http://localhost:5000
-```
-
-The exact Jupyter port depends on the local Jupyter configuration.
-
-When running locally, configure the MLflow tracking URI accordingly:
-
-```python
-mlflow.set_tracking_uri("http://localhost:5000")
-```
-
-For GPU execution, the local PyTorch installation must be compatible with the NVIDIA driver/CUDA environment on the host.
-
-Docker is preferred when the priority is reproducing the project's Python and GPU environment.
-
----
-
-### 9. GPU Support
-
-If NVIDIA GPU acceleration is enabled, the host machine should have:
-
-- a compatible NVIDIA GPU
-- an installed NVIDIA driver
-- NVIDIA Container Toolkit for Docker GPU access
-
-The container uses the host NVIDIA driver while keeping the Python/PyTorch environment isolated.
-
-GPU availability can be checked from Python with:
-
-```python
-import torch
-
-print(torch.cuda.is_available())
-print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
-```
-
----
-
-### 10. Reproducing the Complete Evaluation
-
-A clean reproduction follows:
+# 35. Reproducing the Forecasting Pipeline
 
 ```text
 Raw Dataset
@@ -1035,49 +1033,66 @@ Model_Evaluation.ipynb
      ↓
 ExplainableAI.ipynb
      ↓
+Explainability_Reliability_Audit.ipynb
+     ↓
 LLM.ipynb
      ↓
 evaluation_outputs/
 ```
 
-At the same time:
+The historical explainability notebook is preserved intentionally. The reliability-audit notebook should be treated as the current source of truth regarding whether the original Integrated Gradients results are trustworthy.
 
-```text
-Notebook runs ────────┐
-                      │
-src/Pytorch runs ─────┤
-                      ▼
-                MLflow Server
-                      │
-                      ▼
-             Experiments / Runs
-             Metrics / Artifacts
+---
+
+# 36. Docker Environment
+
+A containerized environment is recommended for reproducibility.
+
+```bash
+docker run --gpus all -it \
+    -p 5000:5000 \
+    -p 8080:8080 \
+    -v .:/workspace \
+    --name Scratch_learn \
+    base_workspace:pytorch-v.1
 ```
 
-This separates **execution**, **implementation**, **experiment tracking**, and **final evaluation artifacts**.
+Enter the container:
+
+```bash
+docker exec -it Scratch_learn bash
+```
+
+Start MLflow:
+
+```bash
+mlflow server \
+    --backend-store-uri sqlite:///mlflow.db \
+    --default-artifact-root ./artifacts \
+    --host 0.0.0.0 \
+    --port 5000
+```
+
+Jupyter and MLflow can then be used together for experimentation and run tracking.
 
 ---
 
-# 22. Limitations
+# 37. Research Perspective
 
-### Peak-event performance
+This project began as a forecasting-and-explainability pipeline, but its most important outcome became methodological:
 
-The model has substantially higher error during peak consumption.
+> **A model explanation should not be trusted merely because an attribution library returns a number.**
 
-### Residual dependence
+The forecasting experiments show that a complex model can underperform a trivial baseline. The explainability audit shows that an attribution method can return highly structured-looking values while violating its own numerical consistency requirement by many orders of magnitude.
 
-Strong residual autocorrelation indicates remaining temporal structure.
-
-### Attribution limitations
-
-Integrated Gradients explains model behaviour but does not establish real-world causality.
-
-### LLM limitations
-
-An LLM may produce fluent but unsupported domain interpretations. Grounding and causal-overclaim checks are therefore necessary.
-
-### Feature coverage
-
-The current feature set does not include external contextual variables such as weather or occupancy.
+For this reason, the project treats **negative results, numerical diagnostics, failed assumptions, and methodological corrections as research outputs rather than implementation defects to hide**.
 
 ---
+
+# References
+
+1. Hebrail, G. & Berard, A. (2006). *Individual Household Electric Power Consumption*. UCI Machine Learning Repository. https://doi.org/10.24432/C58K54
+2. Sundararajan, M., Taly, A., & Yan, Q. (2017). *Axiomatic Attribution for Deep Networks*. Proceedings of the 34th International Conference on Machine Learning.
+3. PyTorch documentation — LSTM and autograd.
+4. Captum documentation — Integrated Gradients.
+
