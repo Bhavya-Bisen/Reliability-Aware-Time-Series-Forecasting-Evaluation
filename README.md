@@ -1077,11 +1077,7 @@ Jupyter and MLflow can then be used together for experimentation and run trackin
 
 ---
 
-# 37. Research Perspective
-
-This project began as a forecasting-and-explainability pipeline, but its most important outcome became methodological:
-
-> **A model explanation should not be trusted merely because an attribution library returns a number.**
+# 37. Conclusion
 
 The forecasting experiments show that a complex model can underperform a trivial baseline. The explainability audit shows that an attribution method can return highly structured-looking values while violating its own numerical consistency requirement by many orders of magnitude.
 
